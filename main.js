@@ -5,24 +5,23 @@ const fs = require('fs/promises')
 const secrets = require('./secrets.json');
 var config = require('./config.json');
 var messages = require('./messages.json')
+const srcApiString = 'https://speedrun.com/api/v1/'
 
 
-
-
+// To execute when bot logs in (loop for checking queue)
 client.on('ready', async () => {
-    
     console.log(`Logged in as ${client.user.tag}!`);
     setInterval(async () => {
-        console.log("checking queue")
         await checkQueue();
-    }, 60000);
-    setInterval(() => {
+    }, /*60000*/ 5000); //TODO make sure to reset this before implementing
+    setInterval(async () => {
         flushLogs();
-    }, 86400000)
+    }, /*86400000*/10000)
 });
 
 client.on('interactionCreate', async interaction => {
     if (interaction.commandName === 'config') {
+        // Init config if not exist
         if (!config[interaction.guild.id]) {
             config[interaction.guild.id] = {
                 
@@ -34,43 +33,48 @@ client.on('interactionCreate', async interaction => {
             }
             await fs.writeFile('./config.json', JSON.stringify(config));
         }
-        let guildConfig = config[interaction.guild.id]
-        if (interaction.options.getString('leaderboards') || interaction.options.getBoolean('records') || interaction.options.getBoolean('misc') || interaction.options.getString('scope') || interaction.options.getChannel('channel')) {
+
+        let guildConfig = config[interaction.guild.id] // Get config for current guild
+        // Dumb check for if options are selected to be overwritten
+        if (interaction.options.getString('leaderboards') || interaction.options.getBoolean('records')!== null || interaction.options.getBoolean('misc')!== null || interaction.options.getString('scope') || interaction.options.getChannel('channel')) {
+            // Gets game ID from abbreviation 
             if(interaction.options.getString('leaderboards')) {
                 let gamesArray = interaction.options.getString('leaderboards').split(',');
-                for (const games of gamesArray) {
-                    //TODO get game ids here
+                for (const games in gamesArray) {
+                    gamesArray[games] = (await (await fetch(`${srcApiString}games?abbreviation=${gamesArray[games]}`)).json()).data[0].id
                 }
-                guildConfig.games = ""
+                guildConfig.games = gamesArray
 
             }
-            if(interaction.options.getBoolean('records')) {
+            //Sets values for other interactions
+            if(interaction.options.getBoolean('records') !== null) {
                 guildConfig.onlyRecords = interaction.options.getBoolean('records');
             }
-            if(interaction.options.getBoolean('misc')) {
+            if(interaction.options.getBoolean('misc')!== null) {
                 guildConfig.misc = interaction.options.getBoolean('misc');
             }
             if(interaction.options.getString('scope')) {
                 guildConfig.scope = interaction.options.getString('scope');
             }
-            if(interaction.options.getString('scope') || interaction.options.getChannel('channel')) {
+            if(interaction.options.getChannel('channel') || interaction.options.getChannel('channel')) {
                 interactionChannel = interaction.options.getChannel('channel')
-                guildConfig.channel = interactionChannel.id;
+                guildConfig.channel = interactionChannel.id
             }
             config[interaction.guild.id] = guildConfig
             await fs.writeFile('./config.json', JSON.stringify(config));
         }
+        // Creates game list string from config
         let gamesList = "" 
         for (const game of guildConfig.games) {
-            let gameInfo = await (await fetch(`https://speedrun.com/api/v1/games/${game}`)).json.data
-            console.log(gameInfo)
-            gamesList = gameInfo.names.international + "(" + gameInfo.abbreviation + "), " + gamesList
+            let gameInfo = (await (await fetch(`${srcApiString}games/${game}`)).json()).data
+            gamesList = gameInfo.names.international + "(" + gameInfo.abbreviation + "), \n" + gamesList
         }
-        gamesList = gamesList.slice(0,-2)
-        if (!config.games) {
+        gamesList = gamesList.slice(0,-3)
+        if (!config[interaction.guild.id]) {
             gamesList = "No Games"
         }
 
+        // Builds embed
         const runEmbed = new EmbedBuilder()
         .setColor(0xFF00FF)
         .setTitle(`Server Configuration`)
@@ -80,7 +84,7 @@ client.on('interactionCreate', async interaction => {
             { name: 'Only Records:', value: `${guildConfig.onlyRecords}`, inline: true },
             { name: 'Miscellaneous:', value: `${guildConfig.misc}`, inline: true },
             { name: 'Scope:', value: `${guildConfig.scope}`, inline: true },
-            { name: 'Channel:', value: `<#${interaction.channel.id}>` }
+            { name: 'Channel:', value: `<#${guildConfig.channel}>` }
             )
         .setTimestamp()
 
@@ -94,28 +98,19 @@ client.on('interactionCreate', async interaction => {
 
 
 async function checkQueue() {
+    console.log("checking queue")
     for (const guildID of client.guilds.cache.keys()) {
         if (!config[guildID].channel) {
-            continue;
+            console.log(`No channel config found for ${guildID}`)
+            continue; // Skips guild if no channel config
         }
-        let guildConfig =  config[guildID]
-        if (Object.keys(config).includes(guildID)) {
-            for (const gameID of guildConfig.games) {
+        let guildConfig = config[guildID]
+        if (Object.keys(config).includes(guildID)) { // Checks if guild has config
+            for (const gameID of guildConfig.games) { //CONTINUE here
+
                 let queueData = await fetchQueue(gameID);
-
-                if (guildConfig.onlyRecords === 1) {
-                    let recordsData = await fetchRecords(gameID, guildConfig.scope, guildConfig.misc);
-
-                    for (const run of queueData) {
-                        if(run.time.primary_t < recordsData.get(run.category)) {
-                            logRun(run, guildID, "Record");
-                        }
-                    }
-                } else {
-                    for (const run of queueData) {
-                        logRun(run, guildID, "Run")
-                    }
-                }
+                let recordsData = await fetchRecords(gameID, guildConfig.scope, guildConfig.misc);
+                handleRuns(queueData, recordsData, guildID, guildConfig)
             }
         } else {
             console.log(`Server ${guildID} has no config`);
@@ -123,62 +118,50 @@ async function checkQueue() {
     }
 }
 
-async function flushLogs() {
-    for (serverID of messages.keys()) {
-        let tempArray = messages[serverID].copy();
-        for (runID of messages[serverID]) {
-            if (await (await fetch(`https://speedrun.com/api/v1/runs/${runID}`)).json.data.status === "verified") {
-                tempArray.splice(tempArray.indexOf(runID), 1)
-            }
-        }
-        messages[serverID] = tempArray
-    }
-    messages = tempArray
-    await fs.writeFile('./messages.json', JSON.stringify(messages));
-}
-
-
+// Combines series of paginated run segments from the queue
 async function fetchQueue(gameID) {
     let runs = []
     let offset = 0
 
     while(true) {
-        let tempRuns = await actuallyFetchQueue(gameID, offset);
-
+        let tempRuns = await fetchPage(gameID, offset);
         if (!tempRuns) {
             console.log(`Queue failed to load for ${gameID}`)
             return undefined;
         }
-
         if (tempRuns.length === 0) {
             break;
         }
 
-        runs.concat(tempRuns.data);
+        runs = [...runs, ...tempRuns];
         offset += 200
     }
     return runs;
 }
 
-async function actuallyFetchQueue(gameID, offset) {
+// Fetches paginated segment of queue
+async function fetchPage(gameID, offset) {
     try {
-        return await (await fetch(`https://speedrun.com/api/v1/runs?game=${gameID}&status=new&offset=${offset}&max=200&embed=players,category`)).json();
+        let tempPage = await (await fetch(`${srcApiString}runs?game=${gameID}&status=new&offset=${offset}&max=200&embed=players,category`)).json();
+        return tempPage.data
     } catch (err) {
         console.error(err);
         return undefined;
     }
 }
 
+// Fetches records and returns a map of records
 async function fetchRecords(gameID, scope, misc) {
     try {
-        let recordObject = await (await fetch(`https://speedrun.com/api/v1/games/${gameID}/records?miscellaneous=${misc}&scope=${scope}&top=1&max=200`)).json();
+        let recordObject = await (await fetch(`${srcApiString}games/${gameID}/records?miscellaneous=${misc}&scope=${scope}&top=1&max=200`)).json();
 
         const recordMap = new Map();
-
+        //TODO work out how to do this with the other part that isnt checking properly, need to set smth up
         for (const record of recordObject.data) {
-            recordMap.set(record.category, record.runs[0].times.primary_t)
+            console.log(record.category)
+            console.log(record.level)
+            recordMap.set(String(record.category) + String(record.level), record.runs[0].run.times.primary_t)
         }
-
         return recordMap;
     } catch (err) {
         console.error(err);
@@ -186,46 +169,81 @@ async function fetchRecords(gameID, scope, misc) {
     }
 }
 
-async function logRun(run, guildID, runType) {
+// Sends message and writes to message log to keep track of what runs are already sent
+async function handleRuns(runList, recordsData, guildID, onlyRecords) {
+    console.log("handling runs")
+    // Ensures guild has a messages dictionary entry
     if(!messages[guildID]) {
         messages[guildID] = []
     }
-    if (!messages.guildID.includes(run.id)) {
-        let reportChannel = await client.guilds.cache.get(guildID).channels.cache.get(config[guildID].channel);
-        let gameData = await (await fetch(`https://speedrun.com/api/v1/games/${run.game}`)).json.data.data
-        
-        let totalSeconds = run.times.primary_t
-        let hours = Math.floor(totalSeconds / 3600);
-        totalSeconds %= 3600;
-        let minutes = Math.floor(totalSeconds / 60);
-        let seconds = totalSeconds % 60;
-        let tempTime = seconds.toString();
-        if (minutes > 0 || hours > 0) {
-            tempTime = minutes.toString() + ":" + tempTime
-        }
-        if (hours > 0) {
-            tempTime = hours.toString() + ":" + tempTime
-        }
-    
-        const runEmbed = new EmbedBuilder()
-        .setColor(0xFF00FF)
-        .setTitle(`New ${runType} in queue for ${gameData.names.international}`)
-        .setURL(`${run.weblink}`)
-        .addFields(
-            { name: 'Description:', value: `${run.comment}` },
-            { name: '\u200B', value: '\u200B' },
-            { name: 'Runner:', value: `${run.players.data[0].names.international}`, inline: true },
-            { name: 'Category:', value: `${run.category.data.name}`, inline: true },
-            { name: 'Time', value: `${tempTime}`, inline: true },
-            )
-        .setTimestamp()
-    
-        await reportChannel.send({embeds: [runEmbed]});
+    for (const run of runList) {
+        if (!messages[guildID].includes(run.id)) {
+            let reportChannel = await client.guilds.cache.get(guildID).channels.cache.get(config[guildID].channel);
+            let gameData = (await (await fetch(`${srcApiString}games/${run.game}`)).json()).data
+            typeString = "Run"
+            //TODO this isn't checking properly :/
+            console.log(run.category.id)
+            console.log(run.level.id)
+            if (run.times.primary_t < recordsData.get(String(run.category) + String(run.level))) {
+                typeString = "Record"
+            } else if (onlyRecords === true) {
+                continue; //skip entry if not record in only records mode
+            }
 
-        messages.guildID.push(`${run.id}`)
+            // Time math :(
+            let totalSeconds = run.times.primary_t
+            let hours = Math.floor(totalSeconds / 3600);
+            totalSeconds %= 3600;
+            let minutes = Math.floor(totalSeconds / 60);
+            let seconds = totalSeconds % 60;
+            let tempTime = seconds.toString();
+            if (minutes > 0 || hours > 0) {
+                tempTime = minutes.toString() + ":" + tempTime
+            }
+            if (hours > 0) {
+                tempTime = hours.toString() + ":" + tempTime
+            }
 
-        await fs.writeFile('./messages.json', JSON.stringify(messages));
+            //builds embed for bot output
+            const runEmbed = new EmbedBuilder()
+            .setColor(0xFF00FF)
+            .setTitle(`New ${typeString} in queue for ${gameData.names.international}`)
+            .setURL(`${run.weblink}`)
+            .addFields(
+                { name: 'Description:', value: `${run.comment}` },
+                { name: 'Runner:', value: `${run.players.data[0].names.international}`, inline: true },
+                { name: 'Category:', value: `${run.category.data.name}`, inline: true },
+                { name: 'Time', value: `${tempTime}`, inline: true },
+                )
+            .setTimestamp()
+
+            await reportChannel.send({embeds: [runEmbed]}); // Sends embed to channel
+            messages[guildID].push(`${run.id}`) // Adds the logged run to the messages list
+
+            await fs.writeFile('./messages.json', JSON.stringify(messages));
+        }
     }
+}
+
+async function flushLogs() {
+    console.log("Flushing Logs")
+    for (serverID of Object.keys(messages)) {
+        let tempArray = messages[serverID];
+        for (runID of messages[serverID]) {
+            let runStatus
+            try {
+                runStatus = (await (await fetch(`${srcApiString}runs/${runID}`)).json()).data.status.status
+            } catch {
+                runStatus = undefined
+            }
+            try {console.log(runStatus)} catch(err) {console.error(err)}
+            if (!runStatus || runStatus !== "new") {
+                tempArray.splice(tempArray.indexOf(runID), 1)
+            }
+        }
+        messages[serverID] = tempArray
+    }
+    await fs.writeFile('./messages.json', JSON.stringify(messages));
 }
 
 client.login(secrets.token);
