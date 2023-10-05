@@ -7,6 +7,8 @@ var config = require('./config.json');
 var messages = require('./messages.json')
 
 
+//TODO cover edge case for empty categories
+
 // To execute when bot logs in (loop for checking queue)
 client.on('ready', async () => {
     console.log(`Logged in as ${client.user.tag}!`);
@@ -155,7 +157,6 @@ async function fetchRecords(gameID, scope, misc) {
         let recordObject = await (await fetch(`https://speedrun.com/api/v1/games/${gameID}/records?miscellaneous=${misc}&scope=${scope}&top=1&max=200`)).json();
 
         let recordsDict = {"levels":{},"categories":{}};
-        //TODO work out how to do this with the other part that isnt checking properly, need to set smth up
         for (const record of recordObject.data) {
             if (record.level != null) {
                 recordsDict["levels"][record.level] = record.runs[0].run.times.primary_t
@@ -182,7 +183,6 @@ async function handleRuns(runList, recordsData, guildID, onlyRecords) {
             let reportChannel = await client.guilds.cache.get(guildID).channels.cache.get(config[guildID].channel);
             let gameData = (await (await fetch(`https://speedrun.com/api/v1/games/${run.game}`)).json()).data
             typeString = "Run"
-            //TODO this isn't checking properly :/
             if (run.level != null) {
                 categoryRecord = recordsData["levels"][run.level]
             } else {
@@ -194,6 +194,7 @@ async function handleRuns(runList, recordsData, guildID, onlyRecords) {
                 continue; //skip entry if not record in only records mode
             }
 
+            //TODO debug time formatting
             // Time math :(
             let totalSeconds = run.times.primary_t
             let hours = Math.floor(totalSeconds / 3600);
