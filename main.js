@@ -5,7 +5,6 @@ const fs = require('fs/promises')
 const secrets = require('./secrets.json');
 var config = require('./config.json');
 var messages = require('./messages.json')
-const srcApiString = 'https://speedrun.com/api/v1/'
 
 
 // To execute when bot logs in (loop for checking queue)
@@ -13,10 +12,10 @@ client.on('ready', async () => {
     console.log(`Logged in as ${client.user.tag}!`);
     setInterval(async () => {
         await checkQueue();
-    }, /*60000*/ 5000); //TODO make sure to reset this before implementing
+    }, 60000 /*5000*/); //TODO make sure to reset this before implementing
     setInterval(async () => {
         flushLogs();
-    }, /*86400000*/10000)
+    }, 86400000)
 });
 
 client.on('interactionCreate', async interaction => {
@@ -41,7 +40,7 @@ client.on('interactionCreate', async interaction => {
             if(interaction.options.getString('leaderboards')) {
                 let gamesArray = interaction.options.getString('leaderboards').split(',');
                 for (const games in gamesArray) {
-                    gamesArray[games] = (await (await fetch(`${srcApiString}games?abbreviation=${gamesArray[games]}`)).json()).data[0].id
+                    gamesArray[games] = (await (await fetch(`https://speedrun.com/api/v1/games?abbreviation=${gamesArray[games]}`)).json()).data[0].id
                 }
                 guildConfig.games = gamesArray
 
@@ -66,7 +65,7 @@ client.on('interactionCreate', async interaction => {
         // Creates game list string from config
         let gamesList = "" 
         for (const game of guildConfig.games) {
-            let gameInfo = (await (await fetch(`${srcApiString}games/${game}`)).json()).data
+            let gameInfo = (await (await fetch(`https://speedrun.com/api/v1/games/${game}`)).json()).data
             gamesList = gameInfo.names.international + "(" + gameInfo.abbreviation + "), \n" + gamesList
         }
         gamesList = gamesList.slice(0,-3)
@@ -110,7 +109,7 @@ async function checkQueue() {
 
                 let queueData = await fetchQueue(gameID);
                 let recordsData = await fetchRecords(gameID, guildConfig.scope, guildConfig.misc);
-                handleRuns(queueData, recordsData, guildID, guildConfig)
+                handleRuns(queueData, recordsData, guildID, guildConfig.onlyRecords)
             }
         } else {
             console.log(`Server ${guildID} has no config`);
@@ -142,7 +141,7 @@ async function fetchQueue(gameID) {
 // Fetches paginated segment of queue
 async function fetchPage(gameID, offset) {
     try {
-        let tempPage = await (await fetch(`${srcApiString}runs?game=${gameID}&status=new&offset=${offset}&max=200&embed=players,category`)).json();
+        let tempPage = await (await fetch(`https://speedrun.com/api/v1/runs?game=${gameID}&status=new&offset=${offset}&max=200&embed=players,category`)).json();
         return tempPage.data
     } catch (err) {
         console.error(err);
@@ -153,16 +152,18 @@ async function fetchPage(gameID, offset) {
 // Fetches records and returns a map of records
 async function fetchRecords(gameID, scope, misc) {
     try {
-        let recordObject = await (await fetch(`${srcApiString}games/${gameID}/records?miscellaneous=${misc}&scope=${scope}&top=1&max=200`)).json();
+        let recordObject = await (await fetch(`https://speedrun.com/api/v1/games/${gameID}/records?miscellaneous=${misc}&scope=${scope}&top=1&max=200`)).json();
 
-        const recordMap = new Map();
+        let recordsDict = {"levels":{},"categories":{}};
         //TODO work out how to do this with the other part that isnt checking properly, need to set smth up
         for (const record of recordObject.data) {
-            console.log(record.category)
-            console.log(record.level)
-            recordMap.set(String(record.category) + String(record.level), record.runs[0].run.times.primary_t)
+            if (record.level != null) {
+                recordsDict["levels"][record.level] = record.runs[0].run.times.primary_t
+            } else {
+                recordsDict["categories"][record.category] = record.runs[0].run.times.primary_t
+            }
         }
-        return recordMap;
+        return recordsDict;
     } catch (err) {
         console.error(err);
         return undefined;
@@ -179,14 +180,17 @@ async function handleRuns(runList, recordsData, guildID, onlyRecords) {
     for (const run of runList) {
         if (!messages[guildID].includes(run.id)) {
             let reportChannel = await client.guilds.cache.get(guildID).channels.cache.get(config[guildID].channel);
-            let gameData = (await (await fetch(`${srcApiString}games/${run.game}`)).json()).data
+            let gameData = (await (await fetch(`https://speedrun.com/api/v1/games/${run.game}`)).json()).data
             typeString = "Run"
             //TODO this isn't checking properly :/
-            console.log(run.category.id)
-            console.log(run.level.id)
-            if (run.times.primary_t < recordsData.get(String(run.category) + String(run.level))) {
+            if (run.level != null) {
+                categoryRecord = recordsData["levels"][run.level]
+            } else {
+                categoryRecord = recordsData["categories"][run.category]
+            }
+            if (run.times.primary_t < categoryRecord) {
                 typeString = "Record"
-            } else if (onlyRecords === true) {
+            } else if (onlyRecords == true) {
                 continue; //skip entry if not record in only records mode
             }
 
@@ -232,7 +236,7 @@ async function flushLogs() {
         for (runID of messages[serverID]) {
             let runStatus
             try {
-                runStatus = (await (await fetch(`${srcApiString}runs/${runID}`)).json()).data.status.status
+                runStatus = (await (await fetch(`https://speedrun.com/api/v1/runs/${runID}`)).json()).data.status.status
             } catch {
                 runStatus = undefined
             }
