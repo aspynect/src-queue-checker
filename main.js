@@ -11,6 +11,7 @@ var messages = require('./messages.json')
 // To execute when bot logs in (loop for checking queue)
 client.on('ready', async () => {
     console.log(`Logged in as ${client.user.tag}!`);
+    checkQueue();
     setInterval(async () => {
         await checkQueue();
     }, 60000);
