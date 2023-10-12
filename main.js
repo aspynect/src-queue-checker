@@ -7,14 +7,13 @@ var config = require('./config.json');
 var messages = require('./messages.json')
 
 
-//TODO cover edge case for empty categories
 
 // To execute when bot logs in (loop for checking queue)
 client.on('ready', async () => {
     console.log(`Logged in as ${client.user.tag}!`);
     setInterval(async () => {
         await checkQueue();
-    }, 60000 /*5000*/); //TODO make sure to reset this before implementing
+    }, 60000);
     setInterval(async () => {
         flushLogs();
     }, 86400000)
@@ -111,7 +110,10 @@ async function checkQueue() {
 
                 let queueData = await fetchQueue(gameID);
                 let recordsData = await fetchRecords(gameID, guildConfig.scope, guildConfig.misc);
-                handleRuns(queueData, recordsData, guildID, guildConfig.onlyRecords)
+
+                queueData = cleanQueue(queueData, guildConfig.misc, guildConfig.scope);
+
+                handleRuns(queueData, recordsData, guildID, guildConfig.onlyRecords);
             }
         } else {
             console.log(`Server ${guildID} has no config`);
@@ -158,9 +160,9 @@ async function fetchRecords(gameID, scope, misc) {
 
         let recordsDict = {"levels":{},"categories":{}};
         for (const record of recordObject.data) {
-            if (record.level != null) {
+            if (record.level != null && record.runs.length > 0) {
                 recordsDict["levels"][record.level] = record.runs[0].run.times.primary_t
-            } else {
+            } else if (record.category != null && record.runs.length > 0) {
                 recordsDict["categories"][record.category] = record.runs[0].run.times.primary_t
             }
         }
@@ -169,6 +171,20 @@ async function fetchRecords(gameID, scope, misc) {
         console.error(err);
         return undefined;
     }
+}
+
+// Clears unwanted runs from the queue
+function cleanQueue(runsList, miscBool, levelsValueString) {
+    if (levelsValueString == "full-game") {
+        runsList = runsList.filter(run => run.level === null)
+    } else if (levelsValueString == "levels") {
+        runsList = runsList.filter(run => run.level !== null)
+    }
+
+    if (miscBool == false) {
+        runsList = runsList.filter(run => run.category.data.miscellaneous == false)
+    }
+    return runsList
 }
 
 // Sends message and writes to message log to keep track of what runs are already sent
@@ -194,20 +210,8 @@ async function handleRuns(runList, recordsData, guildID, onlyRecords) {
                 continue; //skip entry if not record in only records mode
             }
 
-            //TODO debug time formatting
             // Time math :(
-            let totalSeconds = run.times.primary_t
-            let hours = Math.floor(totalSeconds / 3600);
-            totalSeconds %= 3600;
-            let minutes = Math.floor(totalSeconds / 60);
-            let seconds = totalSeconds % 60;
-            let tempTime = seconds.toString();
-            if (minutes > 0 || hours > 0) {
-                tempTime = minutes.toString() + ":" + tempTime
-            }
-            if (hours > 0) {
-                tempTime = hours.toString() + ":" + tempTime
-            }
+            let runTime = timeFormat(run.times.primary_t);
 
             //builds embed for bot output
             const runEmbed = new EmbedBuilder()
@@ -218,7 +222,7 @@ async function handleRuns(runList, recordsData, guildID, onlyRecords) {
                 { name: 'Description:', value: `${run.comment}` },
                 { name: 'Runner:', value: `${run.players.data[0].names.international}`, inline: true },
                 { name: 'Category:', value: `${run.category.data.name}`, inline: true },
-                { name: 'Time', value: `${tempTime}`, inline: true },
+                { name: 'Time', value: `${runTime}`, inline: false },
                 )
             .setTimestamp()
 
@@ -241,7 +245,6 @@ async function flushLogs() {
             } catch {
                 runStatus = undefined
             }
-            try {console.log(runStatus)} catch(err) {console.error(err)}
             if (!runStatus || runStatus !== "new") {
                 tempArray.splice(tempArray.indexOf(runID), 1)
             }
@@ -249,6 +252,18 @@ async function flushLogs() {
         messages[serverID] = tempArray
     }
     await fs.writeFile('./messages.json', JSON.stringify(messages));
+}
+
+// Formats times from an input of a number of seconds
+function timeFormat(seconds) {
+    let ms = String(seconds).split(".")[1]
+    var date = new Date(0);
+    date.setSeconds(seconds);
+    var timeString = date.toISOString().substring(11, 19);
+    if (ms != undefined) {
+        timeString = `${timeString}.${ms}`
+    }
+    return timeString
 }
 
 client.login(secrets.token);
