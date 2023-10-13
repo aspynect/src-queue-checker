@@ -29,6 +29,7 @@ Input type: `channel`
 
 The channel for the bot to report runs in.
 
+# Setting up a personal instance (not recommended for most users)
 ## Running the bot from source code
 ### Requires Node.js
 
@@ -82,6 +83,6 @@ This tells discord what your bot's commands are
 ```
 node main.js
 ```
-This will start the bot, and it should automatically check the queue on startup, as well as every 5 minutes after.
+This will start the bot, and it should automatically check the queue on startup, as well as every 10 minutes after.
 The bot will "flush logs" every day by removing entries from `messages.json` for runs that are no longer pending.
 The bot should now be available to interact with via slash commands!

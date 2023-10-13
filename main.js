@@ -14,7 +14,7 @@ client.on('ready', async () => {
     checkQueue();
     setInterval(async () => {
         await checkQueue();
-    }, 300000);
+    }, 600000);
     setInterval(async () => {
         flushLogs();
     }, 86400000)
@@ -44,7 +44,7 @@ client.on('interactionCreate', async interaction => {
                 let gamesArray = leaderboardsString.split(',');
                 try {
                     for (const games in gamesArray) {
-                        gamesArray[games] = (await (await fetch(`https://speedrun.com/api/v1/games?abbreviation=${gamesArray[games]}`)).json()).data[0].id
+                        gamesArray[games] = (await (await safeFetch(`https://speedrun.com/api/v1/games?abbreviation=${gamesArray[games]}`)).json()).data[0].id
                     }
                     guildConfig.games = gamesArray
                 } catch(err) {
@@ -73,7 +73,7 @@ client.on('interactionCreate', async interaction => {
         // Creates game list string from config
         let gamesList = "" 
         for (const game of guildConfig.games) {
-            let gameInfo = (await (await fetch(`https://speedrun.com/api/v1/games/${game}`)).json()).data
+            let gameInfo = (await (await safeFetch(`https://speedrun.com/api/v1/games/${game}`)).json()).data
             gamesList = gameInfo.names.international + "(" + gameInfo.abbreviation + "), \n" + gamesList
         }
         gamesList = gamesList.slice(0,-3)
@@ -114,15 +114,10 @@ async function checkQueue() {
         let guildConfig = config[guildID]
         if (Object.keys(config).includes(guildID)) { // Checks if guild has config
             for (const gameID of guildConfig.games) { //CONTINUE here
-                let queueData
-                try {
-                    queueData = await fetchQueue(gameID);
-                    if (typeof queueData != 'object') {
-                        console.log("Failed to properly fetch queue")
-                        return
-                    }
-                } catch(err) {
-                    console.log(err)
+                let queueData = await fetchQueue(gameID);
+                if (typeof queueData != 'object') {
+                    console.log("Failed to properly fetch queue")
+                    return
                 }
                 let recordsData = await fetchRecords(gameID, guildConfig.scope, guildConfig.misc);
 
@@ -160,7 +155,7 @@ async function fetchQueue(gameID) {
 // Fetches paginated segment of queue
 async function fetchPage(gameID, offset) {
     try {
-        let tempPage = await (await fetch(`https://speedrun.com/api/v1/runs?game=${gameID}&status=new&offset=${offset}&max=200&embed=players,category`)).json();
+        let tempPage = await (await safeFetch(`https://speedrun.com/api/v1/runs?game=${gameID}&status=new&offset=${offset}&max=20&orderby=submitted&direction=desc&embed=players,category`)).json();
         return tempPage.data
     } catch (err) {
         console.error(err);
@@ -171,7 +166,7 @@ async function fetchPage(gameID, offset) {
 // Fetches records and returns a map of records
 async function fetchRecords(gameID, scope, misc) {
     try {
-        let recordObject = await (await fetch(`https://speedrun.com/api/v1/games/${gameID}/records?miscellaneous=${misc}&scope=${scope}&top=1&max=200`)).json();
+        let recordObject = await (await safeFetch(`https://speedrun.com/api/v1/games/${gameID}/records?miscellaneous=${misc}&scope=${scope}&top=1&max=200`)).json();
 
         let recordsDict = {"levels":{},"categories":{}};
         for (const record of recordObject.data) {
@@ -189,8 +184,17 @@ async function fetchRecords(gameID, scope, misc) {
 }
 
 async function fetchLevelName(levelID) {
-    let level = (await (await fetch(`https://speedrun.com/api/v1/levels/${levelID}`)).json()).data
+    let level = (await (await safeFetch(`https://speedrun.com/api/v1/levels/${levelID}`)).json()).data
     return level.name
+}
+
+// Fetch but if the fetch fails just try again bc the src api sucks
+async function safeFetch(fetchURL) {
+    while (true) {
+        try {
+            return await fetch(fetchURL);
+        } catch {}
+    }
 }
 
 // Clears unwanted runs from the queue
@@ -217,7 +221,7 @@ async function handleRuns(runList, recordsData, guildID, onlyRecords) {
     for (const run of runList) {
         if (!messages[guildID].includes(run.id)) {
             let reportChannel = await client.guilds.cache.get(guildID).channels.cache.get(config[guildID].channel);
-            let gameData = (await (await fetch(`https://speedrun.com/api/v1/games/${run.game}`)).json()).data
+            let gameData = (await (await safeFetch(`https://speedrun.com/api/v1/games/${run.game}`)).json()).data
             typeString = "Run"
             if (run.level != null) {
                 categoryRecord = recordsData["levels"][run.level]
@@ -269,7 +273,7 @@ async function flushLogs() {
         for (runID of messages[serverID]) {
             let runStatus
             try {
-                runStatus = (await (await fetch(`https://speedrun.com/api/v1/runs/${runID}`)).json()).data.status.status
+                runStatus = (await (await safeFetch(`https://speedrun.com/api/v1/runs/${runID}`)).json()).data.status.status
             } catch {
                 runStatus = undefined
             }
