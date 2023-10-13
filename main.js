@@ -14,7 +14,7 @@ client.on('ready', async () => {
     checkQueue();
     setInterval(async () => {
         await checkQueue();
-    }, 60000);
+    }, 300000);
     setInterval(async () => {
         flushLogs();
     }, 86400000)
