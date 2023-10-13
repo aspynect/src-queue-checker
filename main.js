@@ -40,12 +40,18 @@ client.on('interactionCreate', async interaction => {
         if (interaction.options.getString('leaderboards') || interaction.options.getBoolean('records')!== null || interaction.options.getBoolean('misc')!== null || interaction.options.getString('scope') || interaction.options.getChannel('channel')) {
             // Gets game ID from abbreviation 
             if(interaction.options.getString('leaderboards')) {
-                let gamesArray = interaction.options.getString('leaderboards').split(',');
-                for (const games in gamesArray) {
-                    gamesArray[games] = (await (await fetch(`https://speedrun.com/api/v1/games?abbreviation=${gamesArray[games]}`)).json()).data[0].id
+                leaderboardsString = interaction.options.getString('leaderboards').replace(/ /g, '');
+                let gamesArray = leaderboardsString.split(',');
+                try {
+                    for (const games in gamesArray) {
+                        gamesArray[games] = (await (await fetch(`https://speedrun.com/api/v1/games?abbreviation=${gamesArray[games]}`)).json()).data[0].id
+                    }
+                    guildConfig.games = gamesArray
+                } catch(err) {
+                    console.log(err);
+                    interaction.reply({content:'Improperly formatted leaderboards entry. Please try again.', ephemeral:true})
+                    return
                 }
-                guildConfig.games = gamesArray
-
             }
             //Sets values for other interactions
             if(interaction.options.getBoolean('records') !== null) {

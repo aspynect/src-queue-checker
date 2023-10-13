@@ -51,7 +51,7 @@ const rest = new REST({ version: '10' }).setToken(secrets.token);
 (async () => {
     try {
         console.log("Started routing");
-        await rest.put(Routes.applicationCommands('1086518188600209509'), { body: commands });
+        await rest.put(Routes.applicationCommands(secrets.appID), { body: commands });
         console.log("Routing complete");
     } catch (error) {
         console.error(error);
