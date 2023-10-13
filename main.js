@@ -108,8 +108,16 @@ async function checkQueue() {
         let guildConfig = config[guildID]
         if (Object.keys(config).includes(guildID)) { // Checks if guild has config
             for (const gameID of guildConfig.games) { //CONTINUE here
-
-                let queueData = await fetchQueue(gameID);
+                let queueData
+                try {
+                    queueData = await fetchQueue(gameID);
+                    if (typeof queueData != 'object') {
+                        console.log("Failed to properly fetch queue")
+                        return
+                    }
+                } catch(err) {
+                    console.log(err)
+                }
                 let recordsData = await fetchRecords(gameID, guildConfig.scope, guildConfig.misc);
 
                 queueData = cleanQueue(queueData, guildConfig.misc, guildConfig.scope);
@@ -174,6 +182,11 @@ async function fetchRecords(gameID, scope, misc) {
     }
 }
 
+async function fetchLevelName(levelID) {
+    let level = (await (await fetch(`https://speedrun.com/api/v1/levels/${levelID}`)).json()).data
+    return level.name
+}
+
 // Clears unwanted runs from the queue
 function cleanQueue(runsList, miscBool, levelsValueString) {
     if (levelsValueString == "full-game") {
@@ -210,10 +223,18 @@ async function handleRuns(runList, recordsData, guildID, onlyRecords) {
             } else if (onlyRecords == true) {
                 continue; //skip entry if not record in only records mode
             }
+            if (run.level != null) {
+                typeString = "Level " + typeString
+            }
 
             // Time math :(
             let runTime = timeFormat(run.times.primary_t);
 
+            let categoryName = run.category.data.name
+            if (run.level != null) {
+                let levelName = await fetchLevelName(run.level)
+                categoryName = levelName + " " + categoryName
+            }
             //builds embed for bot output
             const runEmbed = new EmbedBuilder()
             .setColor(0xFF00FF)
@@ -222,7 +243,7 @@ async function handleRuns(runList, recordsData, guildID, onlyRecords) {
             .addFields(
                 { name: 'Description:', value: `${run.comment}` },
                 { name: 'Runner:', value: `${run.players.data[0].names.international}`, inline: true },
-                { name: 'Category:', value: `${run.category.data.name}`, inline: true },
+                { name: 'Category:', value: `${categoryName}`, inline: true },
                 { name: 'Time', value: `${runTime}`, inline: false },
                 )
             .setTimestamp()
