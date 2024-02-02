@@ -3,12 +3,17 @@ import json
 blank = json.dumps({})
 secrets = {}
 
+
 f = open("config.json", "x")
 f.write(blank)
 f.close()
 
 f = open("messages.json", "x")
 f.write(blank)
+f.close()
+
+f = open("checkDate.json", "x")
+f.write(json.dumps({"lastSubmitted":None}))
 f.close()
 
 f = open("secrets.json", "x")

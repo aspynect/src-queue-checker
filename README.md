@@ -46,6 +46,13 @@ npm install
 ```
 
 ### Set up file structure for Secrets and other instance-specific setup
+## Automatic Setup
+Use the following command to automatically set up the necessary files:
+```
+python3 setup.py
+```
+
+## Manual Setup
 Before running, your file structure should include these files:
 ```
 src-queue-checker
