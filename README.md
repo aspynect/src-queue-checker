@@ -54,6 +54,7 @@ src-queue-checker
 │   routes.js
 │   secrets.json
 │   messages.json
+|   checkDate.json
 │   config.json
 │   package.json
 |
@@ -64,6 +65,13 @@ Format `secrets.json` as follows with credentials from the discord developer por
 {
     "token":*Token*,
     "appID":*Application ID
+}
+```
+
+Format `checkDate.json` as follows:
+```
+{
+    "lastSubmitted":null
 }
 ```
 

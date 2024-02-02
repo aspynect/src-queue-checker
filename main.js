@@ -5,15 +5,17 @@ const fs = require('fs/promises')
 const secrets = require('./secrets.json');
 var config = require('./config.json');
 var messages = require('./messages.json')
+var checkdate = require('./checkDate.json')
+const lastDate = checkdate.lastSubmitted
 
 
 
 // To execute when bot logs in (loop for checking queue)
 client.on('ready', async () => {
     console.log(`Logged in as ${client.user.tag}!`);
-    checkQueue();
+    checkQueue(true);
     setInterval(async () => {
-        await checkQueue();
+        await checkQueue(false);
     }, 600000);
     setInterval(async () => {
         flushLogs();
@@ -22,6 +24,7 @@ client.on('ready', async () => {
 
 client.on('interactionCreate', async interaction => {
     if (interaction.commandName === 'config') {
+        await interaction.deferReply();
         // Init config if not exist
         if (!config[interaction.guild.id]) {
             config[interaction.guild.id] = {
@@ -52,6 +55,7 @@ client.on('interactionCreate', async interaction => {
                     interaction.reply({content:'Improperly formatted leaderboards entry. Please try again.', ephemeral:true})
                     return
                 }
+                checkQueue(true);
             }
             //Sets values for other interactions
             if(interaction.options.getBoolean('records') !== null) {
@@ -95,7 +99,9 @@ client.on('interactionCreate', async interaction => {
             )
         .setTimestamp()
 
-        await interaction.reply({embeds: [runEmbed]});
+        try {
+            await interaction.editReply({embeds: [runEmbed]});
+        } catch(err) {console.log(err)}
     }
 
     if (interaction.commandName === 'ping') {
@@ -104,7 +110,7 @@ client.on('interactionCreate', async interaction => {
 })
 
 
-async function checkQueue() {
+async function checkQueue(checkFullQueue) {
     console.log("checking queue")
     for (const guildID of client.guilds.cache.keys()) {
         if (!config[guildID].channel) {
@@ -114,7 +120,7 @@ async function checkQueue() {
         let guildConfig = config[guildID]
         if (Object.keys(config).includes(guildID)) { // Checks if guild has config
             for (const gameID of guildConfig.games) { //CONTINUE here
-                let queueData = await fetchQueue(gameID);
+                let queueData = await fetchQueue(gameID, checkFullQueue);
                 if (typeof queueData != 'object') {
                     console.log("Failed to properly fetch queue")
                     return
@@ -129,10 +135,14 @@ async function checkQueue() {
             console.log(`Server ${guildID} has no config`);
         }
     }
+    if (new Date(checkdate.lastSubmitted).valueOf() > new Date(lastDate).valueOf()) {
+        console.log(checkdate.lastSubmitted)
+        await fs.writeFile('./checkDate.json', JSON.stringify(checkdate));
+    }
 }
 
 // Combines series of paginated run segments from the queue
-async function fetchQueue(gameID) {
+async function fetchQueue(gameID, fullQueue) {
     let runs = []
     let offset = 0
 
@@ -147,7 +157,14 @@ async function fetchQueue(gameID) {
         }
 
         runs = [...runs, ...tempRuns];
-        offset += 200
+        offset += 20
+        newestDate = new Date(runs[0].submitted).valueOf()
+        if (fullQueue == false && newestDate <= new Date(checkdate.lastSubmitted).valueOf()) {
+            console.log("No new runs, aborting queue check")
+            return runs
+        } else {
+            checkdate.lastSubmitted = newestDate
+        }
     }
     return runs;
 }
@@ -250,6 +267,7 @@ async function handleRuns(runList, recordsData, guildID, onlyRecords) {
             .setColor(0xFF00FF)
             .setTitle(`New ${typeString} in queue for ${gameData.names.international}`)
             .setURL(`${run.weblink}`)
+            // TODO allow for multi-player runs to be credited properly
             .addFields(
                 { name: 'Description:', value: `${run.comment}` },
                 { name: 'Runner:', value: `${run.players.data[0].names.international}`, inline: true },
