@@ -15,6 +15,7 @@ client.on('ready', async () => {
     console.log(`Logged in as ${client.user.tag}!`);
     checkQueue(true);
     setInterval(async () => {
+        config = require('./config.json');
         await checkQueue(false);
     }, 600000);
     setInterval(async () => {
