@@ -111,6 +111,7 @@ client.on('interactionCreate', async interaction => {
 
 
 async function checkQueue(checkFullQueue) {
+    if (config = {}) {return}
     console.log("checking queue")
     for (const guildID of client.guilds.cache.keys()) {
         if (!config[guildID].channel) {
