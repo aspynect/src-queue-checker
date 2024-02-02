@@ -2,6 +2,7 @@ secrets.json
 config.json
 messages.json
 example_data/
+checkDate.json
 
 # Logs
 logs
